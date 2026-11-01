@@ -346,7 +346,9 @@ test('B2 (s3k): never "applied" on a value read before the click, nor on another
   bsb.params[1000] = { ...bsb.params[1000], value: '1', desc: 'Automatic' };
   // A hot water command reads (800 ms); Protection of circuit 2 is clicked meanwhile.
   bsb.behave = (r) =>
-    r.endpoint === '/JQ' && r.ids.join(',') === '1610,1612,1614' ? { delay: 800 } : undefined;
+    r.endpoint === '/JQ' && r.ids.includes('1610') && r.ids.length <= 3
+      ? { delay: 800 }
+      : undefined;
   const d = gladys.fake.devices.find((x) => x.external_id === device);
   const f = (role) => d.features.find((x) => x.external_id === feature(role));
   gladys.fake.setValue(d, f('dhw-setpoint'), 52);

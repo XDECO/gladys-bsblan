@@ -198,9 +198,45 @@ test('reduced setpoints: within the protection one and the max, never above the 
     ['1012', '17.0'],
     ['1010', '22.5'],
   ]);
-  // The fresh read of a circuit 2 setpoint asks its mode too.
+  // The fresh read of a circuit 2 setpoint asks its mode too (the limits are kept, see below).
   const read = bsb.requests.filter((r) => r.endpoint === '/JQ' && r.ids.includes('1010')).at(-2);
-  assert.deepEqual(read.ids, ['1000', '1010', '1012', '1014', '1016']);
+  assert.deepEqual(read.ids, ['1000', '1010', '1012']);
+});
+
+test('a setpoint command reads only what changes; the limits come from a read less than 15 min old', async (t) => {
+  const { bsb, command, app } = await setup(t);
+  const reads = () => bsb.requests.filter((r) => r.endpoint === '/JQ').map((r) => r.ids.join(','));
+  // The first read containing `id` after `from` is the command's own (a poll comes later).
+  const readFrom = (from, id) =>
+    reads()
+      .slice(from)
+      .find((ids) => ids.split(',').includes(id));
+  // Circuit 1: comfort and reduced, not 714–716.
+  let from = reads().length;
+  assert.equal((await command('heating-setpoint', 21.5)).success, true);
+  assert.equal(readFrom(from, '710'), '710,712');
+  // Circuit 2: its mode (it makes the circuit exist), comfort and reduced, not 1014–1016.
+  from = reads().length;
+  assert.equal((await command('hc2-setpoint', 22.5)).success, true);
+  assert.equal(readFrom(from, '1010'), '1000,1010,1012');
+  // Hot water: nominal and reduced, not 1614.
+  from = reads().length;
+  assert.equal((await command('dhw-setpoint', 52)).success, true);
+  assert.equal(readFrom(from, '1610'), '1610,1612');
+  // The kept limits still bound the command, and survive the command's own read of the mode.
+  await command('hc2-setpoint', 22.5, { wait: 30 * SECOND });
+  assert.equal(app.adapter.values.heating2Max, 26);
+  assert.equal(app.adapter.values.heating2Min, 8);
+  assert.match((await command('hc2-setpoint', 26.5)).error, /entre 18 et 26 °C/);
+  // Older than the limit: read again, in full, and the new limit applies.
+  bsb.params[1016] = { ...bsb.params[1016], value: '24.0' };
+  app.adapter.rangeAt -= 16 * MINUTE;
+  from = reads().length;
+  assert.match(
+    (await command('hc2-setpoint', 25, { wait: 30 * SECOND })).error,
+    /entre 18 et 24 °C/,
+  );
+  assert.equal(readFrom(from, '1016'), '1000,1010,1012,1014,1016');
 });
 
 test('hot water reduced setpoint: never above 1610, 1614, the ceiling nor 65 °C', async (t) => {

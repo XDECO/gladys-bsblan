@@ -88,8 +88,9 @@ scripts/cover.mjs            cover.png generator
 - **The commands**: never a switch or a writable binary (a "turn everything
   off" must not reach them); refused unless `allow_commands` (checked on
   arrival, after the fresh read and right before the request leaves);
-  decided on a fresh read only, bounded by the range the controller reads
-  then, refused when a value is missing; never sent after 3.5 s; a write
+  decided on a fresh read of the values (setpoint, twin, mode), bounded by the
+  range of the controller as last read (poll or command, 15 min at most:
+  `TIMINGS.rangeTtl`), refused when a value is missing; never sent after 3.5 s; a write
   without status 1 is "sent, without confirmation"; a success only when a
   read back shows the value; never retried; one at a time; the ack never
   waits for Gladys. Never leave an unknown mode (except to Protection).

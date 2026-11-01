@@ -267,8 +267,11 @@ Avant chaque commande (sauf Protection et eau chaude à l'arrêt), l'intégratio
 il doit avoir la même adresse MAC que l'appareil et un bus BSB ou LPB, et
 la relecture doit donner le paramètre en écriture, sinon rien n'est envoyé (un autre adaptateur qui a
 pris l'adresse IP n'est jamais commandé). Puis elle **relit** la valeur
-actuelle et la plage permise par le régulateur, et décide sur cette lecture
-seule ; aucune
+actuelle (la consigne et sa jumelle, ou le mode) et décide sur cette lecture ;
+la plage permise par le régulateur (714–716, 1014–1016, 1614) vient de la
+dernière lecture, par le cycle périodique ou une commande, de moins de
+15 minutes, sinon elle est relue aussi (le régulateur refuse de toute façon une
+valeur hors de ses propres limites) ; aucune
 autre requête ne passe entre cette relecture et l'écriture, et l'option (et
 le plafond) est revérifiée juste avant l'envoi. Si une valeur ou la plage
 manque, la commande est refusée. Une valeur déjà en place n'est pas

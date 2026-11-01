@@ -250,7 +250,10 @@ Before each command (Protection and hot water Off aside), the integration first 
 (`/JI`): it must have the MAC address of the device and a BSB or LPB bus,
 and the fresh read must give the parameter as writable, otherwise nothing is sent (another adapter that took the
 IP address is never commanded). Then it **reads again** the current value
-and the range the controller allows, and decides on that read only; no other
+(the setpoint and its twin, or the mode) and decides on that read; the range
+the controller allows (714–716, 1014–1016, 1614) comes from the last read, by
+the periodic cycle or a command, less than 15 minutes old, otherwise it is read
+again too (the controller refuses a value outside its own limits anyway); no other
 request runs between that read and the write, and the option (and the
 ceiling) is checked again right before the request leaves. A missing value
 or range refuses the command. A value already in place is not sent again. A
