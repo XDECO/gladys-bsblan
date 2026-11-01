@@ -126,21 +126,25 @@ const COMMANDS = {
   // Circuit 1: comfort 710 and reduced 712, within 714 and 716, reduced <= comfort.
   [F.HEATING_SETPOINT]: heating(P.COMFORT, 'heatingSetpoint', {
     read: [P.COMFORT, P.REDUCED, P.PROTECTIVE, P.COMFORT_MAX],
+    rangeIds: [P.PROTECTIVE, P.COMFORT_MAX],
     bounds: ['heatingSetpoint', 'heatingSetpointReduced', 'heatingMin', 'heatingMax'],
   }),
   [F.HEATING_REDUCED_TARGET]: heating(P.REDUCED, 'heatingSetpointReduced', {
     reduced: true,
     read: [P.COMFORT, P.REDUCED, P.PROTECTIVE, P.COMFORT_MAX],
+    rangeIds: [P.PROTECTIVE, P.COMFORT_MAX],
     bounds: ['heatingSetpoint', 'heatingSetpointReduced', 'heatingMin', 'heatingMax'],
   }),
   // Circuit 2: the same with 1010, 1012, 1014, 1016; its mode (1000) read too (it exists).
   [F.HC2_SETPOINT]: heating(P.COMFORT2, 'heating2Setpoint', {
     read: [P.MODE2, P.COMFORT2, P.REDUCED2, P.PROTECTIVE2, P.COMFORT_MAX2],
+    rangeIds: [P.PROTECTIVE2, P.COMFORT_MAX2],
     bounds: ['heating2Setpoint', 'heating2SetpointReduced', 'heating2Min', 'heating2Max'],
   }),
   [F.HC2_REDUCED_TARGET]: heating(P.REDUCED2, 'heating2SetpointReduced', {
     reduced: true,
     read: [P.MODE2, P.COMFORT2, P.REDUCED2, P.PROTECTIVE2, P.COMFORT_MAX2],
+    rangeIds: [P.PROTECTIVE2, P.COMFORT_MAX2],
     bounds: ['heating2Setpoint', 'heating2SetpointReduced', 'heating2Min', 'heating2Max'],
   }),
   // Hot water: nominal 1610 and reduced 1612, under 1614, the ceiling and 65 °C.
@@ -149,6 +153,7 @@ const COMMANDS = {
     id: P.DHW_NOMINAL,
     key: 'dhwSetpoint',
     read: [P.DHW_NOMINAL, P.DHW_REDUCED, P.DHW_NOMINAL_MAX],
+    rangeIds: [P.DHW_NOMINAL_MAX],
   },
   [F.DHW_REDUCED_TARGET]: {
     kind: 'dhw',
@@ -156,6 +161,7 @@ const COMMANDS = {
     key: 'dhwSetpointReduced',
     reduced: true,
     read: [P.DHW_NOMINAL, P.DHW_REDUCED, P.DHW_NOMINAL_MAX],
+    rangeIds: [P.DHW_NOMINAL_MAX],
   },
 };
 
@@ -174,6 +180,19 @@ const ID_KEYS = {
   [P.DHW_MODE]: ['dhwMode'],
   [P.DHW_NOMINAL]: ['dhwSetpoint'],
   [P.DHW_REDUCED]: ['dhwSetpointReduced'],
+  [P.DHW_NOMINAL_MAX]: ['dhwMax'],
+};
+
+/**
+ * The installer limits (714/716, 1014/1016, 1614): they hardly ever change, and
+ * every parameter read costs a bus round trip, so a command re-reads them
+ * only when the last read of them is older than `TIMINGS.rangeTtl`.
+ */
+const RANGE_KEYS = {
+  [P.PROTECTIVE]: ['heatingMin'],
+  [P.COMFORT_MAX]: ['heatingMax'],
+  [P.PROTECTIVE2]: ['heating2Min'],
+  [P.COMFORT_MAX2]: ['heating2Max'],
   [P.DHW_NOMINAL_MAX]: ['dhwMax'],
 };
 
@@ -761,6 +780,7 @@ export class BsbLanApp {
     adapter.info = info;
     adapter.mac = info.mac;
     adapter.values = values;
+    adapter.rangeAt = this.now();
     adapter.online = true;
     adapter.failures = 0;
     adapter.wait = undefined;
@@ -1335,6 +1355,33 @@ export class BsbLanApp {
     }
   }
 
+  /**
+   * The limits of the controller kept from a recent read (poll or command),
+   * when the command's role has some and all of them are known: the command
+   * then does not read them again. The values themselves (the setpoint, its
+   * twin, the mode) are always read fresh.
+   */
+  rangeCache(adapter, spec) {
+    if (
+      !spec.rangeIds ||
+      !adapter.values ||
+      adapter.rangeAt === undefined ||
+      this.now() - adapter.rangeAt > TIMINGS.rangeTtl
+    ) {
+      return undefined;
+    }
+    const values = {};
+    for (const id of spec.rangeIds) {
+      for (const key of RANGE_KEYS[id]) {
+        if (adapter.values[key] === undefined) {
+          return undefined;
+        }
+        values[key] = adapter.values[key];
+      }
+    }
+    return { ids: spec.rangeIds, values };
+  }
+
   /** Keeps what a command's read gave: the values, the access, the sequence (src/app.js read). */
   keepFresh(adapter, mac, ids, picked, stamp) {
     const fresh = decode('bsb', picked);
@@ -1375,7 +1422,8 @@ export class BsbLanApp {
     // First /JI, read now: the adapter answering at this address is the one
     // of the device (its MAC), on a BSB or LPB bus. Then the parameters,
     // never the values in memory. Both within the read budget.
-    const ids = spec.read;
+    const cached = this.rangeCache(adapter, spec);
+    const ids = cached ? spec.read.filter((id) => !cached.ids.includes(id)) : spec.read;
     let answer;
     try {
       const info = adapterOf(await raw.info({ answerBy: readBy }));
@@ -1410,6 +1458,13 @@ export class BsbLanApp {
       }
     }
     const fresh = this.keepFresh(adapter, mac, ids, picked, departedOf(answer));
+    if (cached) {
+      // Reading the mode of circuit 2 resets its limits to "not read": put the kept ones back.
+      Object.assign(adapter.values, cached.values);
+      Object.assign(fresh, cached.values);
+    } else if (spec.rangeIds) {
+      adapter.rangeAt = this.now();
+    }
 
     this.checkRange(role, wanted, fresh);
     // Read only (the parameter, or the whole bus): refused before anything leaves.

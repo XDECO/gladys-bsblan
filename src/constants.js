@@ -146,6 +146,12 @@ export const TIMINGS = {
   commandReadMax: 2_500,
   commandMinRead: 300,
   commandMinSend: 300,
+  /**
+   * The limits of the controller (714–716, 1014–1016, 1614) read by the poll
+   * or a command stay valid for a command this long; the values are always
+   * read fresh.
+   */
+  rangeTtl: 15 * MINUTE,
   /** After a write that may have left, the next command waits this long ("still running"). */
   commandSpacing: 3 * SECOND,
   /** Polls after a command, spaced: its effect, then a check. */

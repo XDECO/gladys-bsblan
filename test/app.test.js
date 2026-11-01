@@ -327,13 +327,14 @@ test('an unknown mode of the controller is never left', async (t) => {
   assert.deepEqual(bsb.writes(), []);
 });
 
-test('the comfort setpoint: bounded by 714–716 read just before, strict values', async (t) => {
+test('the comfort setpoint: bounded by 714–716 as last read (poll or command), strict values', async (t) => {
   const bsb = fakeBsbLan();
-  const { command } = await setup(t, { bsb, config: ALLOWED });
+  const { command, advance } = await setup(t, { bsb, config: ALLOWED });
   assert.equal((await command('heating-setpoint', 21.5)).success, true);
   assert.deepEqual(bsb.writes(), [['710', '21.5']]);
   await command('heating-setpoint', 21.5, { wait: 30 * SECOND });
   bsb.params[716] = { ...bsb.params[716], value: '24.0' };
+  await advance(31 * SECOND);
   const high = await command('heating-setpoint', 26);
   assert.match(high.error, /entre 17 et 24 °C actuellement/, 'never below 712 nor 714');
   assert.match((await command('heating-setpoint', 16)).error, /entre 17 et 24/);
@@ -342,6 +343,7 @@ test('the comfort setpoint: bounded by 714–716 read just before, strict values
     assert.equal(ack.success, false, String(value));
   }
   bsb.params[714] = inactive();
+  await advance(31 * SECOND);
   const missing = await command('heating-setpoint', 22);
   assert.match(missing.error, /plage permise/);
   assert.deepEqual(bsb.writes(), [['710', '21.5']]);
@@ -349,7 +351,7 @@ test('the comfort setpoint: bounded by 714–716 read just before, strict values
 
 test('hot water: 65 °C by default, refused on arrival above it, bounded by 1612–1614', async (t) => {
   const bsb = fakeBsbLan();
-  const { command, app } = await setup(t, { bsb, config: ALLOWED });
+  const { command, app, advance } = await setup(t, { bsb, config: ALLOWED });
   assert.equal(app.config.dhwCap, 65, '65 °C by default');
   const above = await command('dhw-setpoint', 66);
   assert.match(above.error, /entre 10 et 65 °C/);
@@ -363,7 +365,8 @@ test('hot water: 65 °C by default, refused on arrival above it, bounded by 1612
   assert.deepEqual(bsb.writes(), [], 'nothing sent above the ceiling');
   const before = bsb.requests.length;
   assert.equal((await command('dhw-setpoint', 65)).success, true, '65 °C is allowed');
-  assert.deepEqual(bsb.requests[before + 1].ids, ['1610', '1612', '1614']);
+  // 1614 is the limit of the controller, kept from the last poll: only 1610 and 1612 are read.
+  assert.deepEqual(bsb.requests[before + 1].ids, ['1610', '1612']);
   assert.deepEqual(bsb.writes(), [['1610', '65']]);
   await command('dhw-setpoint', 52, { wait: 30 * SECOND });
   await app.configUpdated({ ...ALLOWED, dhw_max_temperature: 75 });
@@ -372,6 +375,7 @@ test('hot water: 65 °C by default, refused on arrival above it, bounded by 1612
   assert.match((await command('dhw-setpoint', 56)).error, /plafonnée à 55 °C/);
   await app.configUpdated({ ...ALLOWED });
   bsb.params[1614] = { ...bsb.params[1614], value: '58.0' };
+  await advance(31 * SECOND);
   assert.match(
     (await command('dhw-setpoint', 59)).error,
     /entre 40 et 58 °C/,

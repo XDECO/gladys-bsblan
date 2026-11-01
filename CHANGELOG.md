@@ -10,6 +10,16 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- A setpoint command no longer reads the limits of the controller (714–716,
+  1014–1016, 1614) again before writing: it reads the setpoint and its twin
+  (and the mode of circuit 2), and takes the limits from the last poll or
+  command, up to 15 minutes old. The read before a command drops from 4–5
+  parameters to 2–3, which the adapter reads one by one on the bus, so far
+  fewer commands are refused "too slow" or "value not read". The controller
+  still refuses a write outside its own limits.
+
 ## [0.2.0] - 2026-10-31
 
 ### Added
